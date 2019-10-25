@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Notifications\SignupActivate;
 use App\User;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 
 //https://medium.com/@cvallejo/sistema-de-autenticaci%C3%B3n-api-rest-con-laravel-5-6-240be1f3fc7d
 class AuthController extends Controller
@@ -37,15 +39,31 @@ class AuthController extends Controller
 			return response()->json($validator->errors());
 		}
 
-
 		$user = new User([
 			'name'     => $request->name,
 			'email'    => $request->email,
 			'password' => bcrypt($request->password),
+			'activation_token'  => Str::random(60),
 		]);
+
 		$user->save();
+
+		$user->notify(new SignupActivate($user));
+
 		return response()->json([
 			'message' => 'Successfully created user!'], 201);
+	}
+
+	public function signupActivate($token)
+	{
+		$user = User::where('activation_token', $token)->first();
+		if (!$user) {
+			return response()->json(['message' => 'El token de activación es inválido'], 404);
+		}
+		$user->active = true;
+		$user->activation_token = '';
+		$user->save();
+		return $user;
 	}
 	
 	public function login(Request $request)
@@ -57,6 +75,10 @@ class AuthController extends Controller
 		]);
 
 		$credentials = request(['email', 'password']);
+
+		$credentials['active'] = 1;
+		$credentials['deleted_at'] = null;
+		
 		if (!Auth::attempt($credentials)) {
 			//401 RESPONSE NOT COMPATIBLE WITH VOLLEY
 			// return response()->json([
@@ -66,7 +88,7 @@ class AuthController extends Controller
 			// 	'message' => 'Unauthorized'], 201);
 
 			return response()->json([
-			 	'message' => 'Unauthorized']);
+				'message' => 'Unauthorized']);
 		}
 
 		$user = $request->user();
